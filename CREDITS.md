@@ -31,5 +31,8 @@ AO-Greenroom exists because of the work of many people. Thank you. 💚
   webAO client, and the conventions this tool targets.
 - **KFO-CharMaker** and **DROButtonMaker** — inspiration for the "idiot-proof
   character maker" philosophy carried over from Pinsel.
+- **UmaViewer** (katboi01) — the Uma Musume asset viewer whose `.pmx` exporter
+  produces the models this tool is tested against; its bone-naming and
+  coordinate conventions informed the motion-retargeting support.
 
 If you've contributed and aren't listed, open a PR and add yourself.

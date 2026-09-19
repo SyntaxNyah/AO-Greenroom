@@ -7,7 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
@@ -25,6 +25,7 @@ import type { MmdMesh } from "babylon-mmd/esm/Runtime/mmdMesh";
 import type { MmdModel } from "babylon-mmd/esm/Runtime/mmdModel";
 import type { MmdAnimation } from "babylon-mmd/esm/Loader/Animation/mmdAnimation";
 import type { MmdRuntimeAnimationHandle } from "babylon-mmd/esm/Runtime/mmdRuntimeAnimationHandle";
+import type { Bone } from "@babylonjs/core/Bones/bone";
 
 import type { Pose } from "../model/project";
 import { autoFramePose } from "./frameFromSkeleton";
@@ -63,7 +64,6 @@ export class MmdStage {
   private charHeight = 1;
   private feetY = 0;
   private looping = false;
-  private mirrorMotion = false;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -160,7 +160,6 @@ export class MmdStage {
     try {
       const anim = await this.vmdLoader.loadAsync(url, url);
       this.motions.set(stem, anim);
-      if (this.mirrorMotion) this.mirrorAnimation(anim);
       const durationMs = (anim.endFrame / 30) * 1000;
       const animationBoneNames = this.animationBoneNames(anim);
       const binding = this.model
@@ -233,28 +232,59 @@ export class MmdStage {
     this.runtime.pauseAnimation();
   }
 
-  /** Toggles an experimental mirror correction for models whose left/right
-   *  convention is flipped relative to the standard MMD the .vmd targets
-   *  (e.g. the model's left arm is at +X instead of -X). Mirrors every bone
-   *  rotation across the Y-Z plane (negates the quaternion y/z components).
-   *  The runtime reads track data live, so the change applies immediately. */
-  setMirrorMotion(on: boolean): void {
-    if (on === this.mirrorMotion) return;
-    this.mirrorMotion = on;
-    for (const anim of this.motions.values()) this.mirrorAnimation(anim);
-    console.log(`[mmd] mirror motion ${on ? "on" : "off"}`);
-  }
+  /**
+   * Dumps the model's bone coordinates and the loaded motions' track
+   * coordinates. Used to diagnose retarget / coordinate-convention mismatches
+   * (e.g. a model whose bone rest-orientations aren't the standard MMD
+   * identity, or a left/right axis flip vs the .vmd).
+   */
+  diagnostics(): string {
+    const lines: string[] = ["=== MMD coordinate dump ==="];
 
-  private mirrorAnimation(anim: MmdAnimation): void {
-    for (const track of anim.boneTracks) this.mirrorRotations(track.rotations);
-    for (const track of anim.movableBoneTracks) this.mirrorRotations(track.rotations);
-  }
-
-  private mirrorRotations(r: Float32Array): void {
-    for (let i = 0; i < r.length; i += 4) {
-      r[i + 1] = -r[i + 1]!; // y
-      r[i + 2] = -r[i + 2]!; // z
+    const skeleton = this.mesh?.skeleton;
+    if (skeleton) {
+      const bones = skeleton.bones;
+      const restMats = bones.map((b) => b.getRestMatrix().clone());
+      const parentIndexOf = (b: Bone): number => {
+        const p = b.getParent();
+        return p ? bones.indexOf(p) : -1;
+      };
+      lines.push(`MODEL ${bones.length} bones:`);
+      bones.forEach((b, i) => {
+        const rest = restMats[i]!;
+        const pos = `(${MmdStage.fmt(rest.m[12])}, ${MmdStage.fmt(rest.m[13])}, ${MmdStage.fmt(rest.m[14])})`;
+        let localRot = "";
+        const pi = parentIndexOf(b);
+        if (pi >= 0) {
+          const local = rest.clone().multiply(restMats[pi]!.clone().invert());
+          const q = Quaternion.FromRotationMatrix(local);
+          localRot = ` localRot=(${MmdStage.fmt(q.x)}, ${MmdStage.fmt(q.y)}, ${MmdStage.fmt(q.z)}, ${MmdStage.fmt(q.w)})`;
+        }
+        lines.push(`  ${b.name}: pos=${pos}${localRot}`);
+      });
     }
+
+    for (const [stem, anim] of this.motions) {
+      lines.push(`MOTION "${stem}" endFrame=${anim.endFrame}:`);
+      for (const t of anim.boneTracks) {
+        lines.push(
+          `  bone ${t.name} frames=${t.frameNumbers.length} rot0=(${MmdStage.fmt(t.rotations[0])}, ${MmdStage.fmt(t.rotations[1])}, ${MmdStage.fmt(t.rotations[2])}, ${MmdStage.fmt(t.rotations[3])})`,
+        );
+      }
+      for (const t of anim.movableBoneTracks) {
+        lines.push(
+          `  movable ${t.name} frames=${t.frameNumbers.length} pos0=(${MmdStage.fmt(t.positions[0])}, ${MmdStage.fmt(t.positions[1])}, ${MmdStage.fmt(t.positions[2])}) rot0=(${MmdStage.fmt(t.rotations[0])}, ${MmdStage.fmt(t.rotations[1])}, ${MmdStage.fmt(t.rotations[2])}, ${MmdStage.fmt(t.rotations[3])})`,
+        );
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  private static fmt(n: number | undefined): string {
+    if (n === undefined) return "?";
+    const v = Math.abs(n) < 1e-9 ? 0 : n;
+    return v.toFixed(4);
   }
 
   /** The default resting shot, derived from the skeleton (feet near bottom). */
