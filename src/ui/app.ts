@@ -49,6 +49,7 @@ async function entryToFiles(entry: FileSystemEntry): Promise<File[]> {
   if (entry.isDirectory) {
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     const children = await readAllEntries(reader);
+    console.log(`[app]     dir "${entry.fullPath || entry.name}": ${children.length} children`);
     const files: File[] = [];
     for (const child of children) files.push(...(await entryToFiles(child)));
     return files;
@@ -61,24 +62,46 @@ async function entryToFiles(entry: FileSystemEntry): Promise<File[]> {
  *  flat `files` list on browsers without it. */
 async function getFilesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
   const items = Array.from(dt.items ?? []);
+  const flat = Array.from(dt.files ?? []);
+  console.log(`[app] drop: ${items.length} items, ${flat.length} dt.files`);
+
+  const files: File[] = [];
+  const seen = new Set<string>();
+  const add = (file: File): void => {
+    const key = `${file.name}::${file.size}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      files.push(file);
+    }
+  };
+
   const first = items[0];
   if (first && typeof first.webkitGetAsEntry === "function") {
     // DataTransfer items are only valid during the synchronous part of the
-    // drop event, so capture every entry up front — before any await — then
+    // drop event, so capture every entry up front - before any await - then
     // traverse them asynchronously. Otherwise later items (e.g. a folder
     // dropped alongside the .pmx) get dropped from the result.
     const entries: FileSystemEntry[] = [];
     for (const item of items) {
       const entry = item.webkitGetAsEntry();
-      if (entry) entries.push(entry);
+      if (entry) {
+        console.log(`[app]   entry: ${entry.isDirectory ? "dir" : "file"} "${entry.fullPath || entry.name}"`);
+        entries.push(entry);
+      } else {
+        console.log(`[app]   item: webkitGetAsEntry -> null (kind=${item.kind}, type=${item.type})`);
+      }
     }
-    const files: File[] = [];
     for (const entry of entries) {
-      files.push(...(await entryToFiles(entry)));
+      for (const file of await entryToFiles(entry)) add(file);
     }
-    if (files.length > 0) return files;
   }
-  return Array.from(dt.files ?? []);
+
+  // Merge the flat dt.files list so folder contents are never lost when
+  // webkitGetAsEntry is missing (Firefox) or the traversal comes up short.
+  for (const file of flat) add(file);
+
+  console.log(`[app]   merged ${files.length} files`);
+  return files;
 }
 
 export class App {
@@ -158,6 +181,15 @@ export class App {
     drop.addEventListener("click", () => this.pickFiles());
 
     section.appendChild(drop);
+
+    const actions = el("div", "import-actions");
+    actions.style.display = "flex";
+    actions.style.gap = "6px";
+    actions.style.marginTop = "6px";
+    actions.appendChild(button("Browse folder...", () => this.pickFolder(), "small"));
+    actions.appendChild(button("Browse files...", () => this.pickFiles(), "small"));
+    section.appendChild(actions);
+
     this.status = el("div", "hint");
     section.appendChild(this.status);
     return section;
@@ -210,6 +242,21 @@ export class App {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
+    input.style.display = "none";
+    input.addEventListener("change", () => {
+      this.onFiles(Array.from(input.files ?? []));
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  private pickFolder(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    // Recursively reads every file in the chosen folder and sets
+    // webkitRelativePath (e.g. "Texture2D/tex.png") in all browsers.
+    input.setAttribute("webkitdirectory", "");
     input.style.display = "none";
     input.addEventListener("change", () => {
       this.onFiles(Array.from(input.files ?? []));
