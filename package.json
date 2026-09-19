@@ -1,0 +1,28 @@
+{
+  "name": "ao-greenroom",
+  "version": "0.1.0",
+  "description": "Idiot-proof AO2 3D (MMD) character rigger — turn a .pmx model + .vmd motions into an AO2/webAO-ready 3D character (char.ini + camera.json + motions).",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.27.1",
+    "babylon-mmd": "^1.3.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

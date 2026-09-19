@@ -1,0 +1,500 @@
+// The single-page wizard: import → emotes & motions → camera → export.
+// Deliberately linear and default-everything so a non-technical creator can go
+// from "a folder of MMD files" to "a finished AO2 3D character" in one pass.
+
+import type { CameraRig, GreenroomProject, Pose } from "../model/project";
+import { newProject, parseProject, serializeProject } from "../model/project";
+import { serializeCameraRig } from "../export/cameraJson";
+import { buildCharacterFolder, type CharFile } from "../export/folder";
+import { buildZip } from "../export/zip";
+import { hasErrors, validateProject, type Issue } from "../export/validate";
+import { guessMotionRole, motionStem } from "../stage/motionLibrary";
+import type { MmdStage } from "../stage/mmdStage";
+import { button, clear, downloadBytes, el } from "./dom";
+
+const SHOT_PRESETS: Array<{ name: string; pose: Pose }> = [
+  { name: "Full body", pose: { targetY: 0.57, distance: 2.3, yaw: 0, pitch: 0 } },
+  { name: "Waist up", pose: { targetY: 0.72, distance: 1.35, yaw: 0, pitch: 0 } },
+  { name: "Headshot", pose: { targetY: 0.85, distance: 0.8, yaw: 0, pitch: 0 } },
+  { name: "Low drama", pose: { targetY: 0.6, distance: 2.0, yaw: 0, pitch: -8 } },
+  { name: "High drama", pose: { targetY: 0.4, distance: 2.6, yaw: 0, pitch: 14 } },
+  { name: "Over shoulder", pose: { targetY: 0.6, distance: 1.8, yaw: 24, pitch: 0 } },
+];
+
+const readFile = (file: File): Promise<Uint8Array> =>
+  file.arrayBuffer().then((b) => new Uint8Array(b));
+
+export class App {
+  private stage: MmdStage | null = null;
+  private project: GreenroomProject = newProject();
+  private motionFiles = new Map<string, File>();
+  private modelFile: File | null = null;
+  private textureFiles = new Map<string, File>();
+  private selectedEmote: string | null = null;
+
+  private canvas!: HTMLCanvasElement;
+  private hint!: HTMLDivElement;
+  private emoteList!: HTMLDivElement;
+  private cameraPanel!: HTMLDivElement;
+  private status!: HTMLDivElement;
+  private issuesBox!: HTMLDivElement;
+
+  constructor(root: HTMLElement) {
+    const header = el("header");
+    const title = el("h1");
+    title.append("AO-", el("span", "accent", "Greenroom"));
+    header.appendChild(title);
+    header.appendChild(el("span", "credits", "MMD rigger for AO2/webAO"));
+    const spacer = el("span", "spacer");
+    header.appendChild(spacer);
+    header.appendChild(button("Open project", () => this.openProject()));
+    header.appendChild(button("Save project", () => this.saveProject()));
+    header.appendChild(button("Export character", () => this.exportCharacter(), "primary"));
+    root.appendChild(header);
+
+    const main = el("main");
+    const sidebar = el("aside", "sidebar");
+    sidebar.appendChild(this.buildImportSection());
+    sidebar.appendChild(this.buildEmoteSection());
+    sidebar.appendChild(this.buildCameraSection());
+    sidebar.appendChild(this.buildExportSection());
+    main.appendChild(sidebar);
+
+    const viewport = el("section", "viewport");
+    this.canvas = el("canvas");
+    this.hint = el("div", "stage-hint");
+    this.hint.append(
+      el("strong", undefined, "Drop your model to begin"),
+      el("span", undefined, ".pmx + .vmd motions + textures"),
+    );
+    viewport.appendChild(this.canvas);
+    viewport.appendChild(this.hint);
+    main.appendChild(viewport);
+    root.appendChild(main);
+
+    this.renderEmotes();
+    this.renderCamera();
+    this.renderStatus();
+  }
+
+  private buildImportSection(): HTMLElement {
+    const section = el("section");
+    section.appendChild(el("h2", undefined, "1 · Import"));
+
+    const drop = el("div", "drop");
+    drop.append(
+      el("strong", undefined, "Drop a folder here"),
+      el("div", undefined, "the .pmx model, its textures, and any .vmd motions"),
+    );
+    drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      drop.classList.add("over");
+    });
+    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("over");
+      this.onFiles(Array.from(e.dataTransfer?.files ?? []));
+    });
+    drop.addEventListener("click", () => this.pickFiles());
+
+    section.appendChild(drop);
+    this.status = el("div", "hint");
+    section.appendChild(this.status);
+    return section;
+  }
+
+  private buildEmoteSection(): HTMLElement {
+    const section = el("section");
+    const head = el("div", "row");
+    head.style.display = "flex";
+    head.style.alignItems = "center";
+    head.style.justifyContent = "space-between";
+    head.appendChild(el("h2", undefined, "2 · Emotes"));
+    head.appendChild(button("+ Add emote", () => this.addEmote(), "small"));
+    section.appendChild(head);
+    this.emoteList = el("div");
+    section.appendChild(this.emoteList);
+    return section;
+  }
+
+  private buildCameraSection(): HTMLElement {
+    const section = el("section");
+    section.appendChild(el("h2", undefined, "3 · Camera"));
+    this.cameraPanel = el("div");
+    section.appendChild(this.cameraPanel);
+    return section;
+  }
+
+  private buildExportSection(): HTMLElement {
+    const section = el("section");
+    section.appendChild(el("h2", undefined, "4 · Export"));
+    section.appendChild(button("Export character", () => this.exportCharacter(), "primary"));
+    section.appendChild(
+      el(
+        "div",
+        "hint",
+        "Zips a character folder (char.ini + camera.json + model + motions) ready to drop into AO2/webAO.",
+      ),
+    );
+    this.issuesBox = el("div", "issues");
+    section.appendChild(this.issuesBox);
+    return section;
+  }
+
+  private pickFiles(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.style.display = "none";
+    input.addEventListener("change", () => {
+      this.onFiles(Array.from(input.files ?? []));
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  private async onFiles(files: File[]): Promise<void> {
+    if (files.length === 0) return;
+
+    const model = files.find((f) => /\.pmx$/i.test(f.name));
+    const motions = files.filter((f) => /\.vmd$/i.test(f.name));
+    const others = files.filter((f) => !/\.(pmx|vmd)$/i.test(f.name));
+
+    if (model) {
+      this.modelFile = model;
+      this.project.character.model = model.name;
+      await this.ensureStage();
+      if (this.stage) {
+        this.hint.style.display = "none";
+        try {
+          await this.stage.loadModel(model);
+          this.applyPose(this.stage.autoFrame());
+          this.project.cameraRig.default = this.stage.autoFrame();
+        } catch (err) {
+          this.renderStatus([{ severity: "error", message: `Could not load model: ${String(err)}` }]);
+        }
+      }
+    }
+
+    for (const motion of motions) {
+      const stem = motionStem(motion.name);
+      this.motionFiles.set(stem, motion);
+      if (this.stage) {
+        try {
+          const info = await this.stage.loadMotion(motion);
+          const existing = this.project.motions.find((m) => m.stem === stem);
+          if (existing) existing.durationMs = info.durationMs;
+          else {
+            this.project.motions.push({
+              file: motion.name,
+              stem,
+              role: guessMotionRole(motion.name),
+              durationMs: info.durationMs,
+            });
+          }
+        } catch {
+          // Ignore unreadable motion files.
+        }
+      }
+    }
+
+    for (const other of others) {
+      const rel = other.webkitRelativePath || other.name;
+      this.textureFiles.set(rel, other);
+    }
+
+    if (motions.length > 0) this.autoAssignMotions();
+    this.renderEmotes();
+    this.renderCamera();
+    this.renderStatus();
+  }
+
+  private async ensureStage(): Promise<void> {
+    if (this.stage) return;
+    const { createStage } = await import("../stage/mmdStage");
+    this.stage = await createStage(this.canvas);
+    this.stage.setOrbit(true);
+  }
+
+  private autoAssignMotions(): void {
+    const stems = Array.from(this.motionFiles.keys());
+    if (stems.length === 0) return;
+    const used = new Set<string>();
+    for (const emote of this.project.emotes) {
+      if (this.motionFiles.has(emote.anim)) {
+        used.add(emote.anim);
+        continue;
+      }
+      const want = emote.key.toLowerCase();
+      const match =
+        stems.find((s) => guessMotionRole(`${s}.vmd`) === want && !used.has(s)) ??
+        stems.find((s) => !used.has(s));
+      if (match) {
+        emote.anim = match;
+        used.add(match);
+      }
+    }
+  }
+
+  private motionSelect(current: string | null, includeNone: boolean): HTMLSelectElement {
+    const sel = document.createElement("select");
+    if (includeNone) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "(none)";
+      sel.appendChild(none);
+    }
+    const stems = new Set(this.motionFiles.keys());
+    if (current) stems.add(current);
+    for (const stem of [...stems].sort()) {
+      const opt = document.createElement("option");
+      opt.value = stem;
+      opt.textContent = stem;
+      sel.appendChild(opt);
+    }
+    sel.value = current ?? "";
+    return sel;
+  }
+
+  private renderEmotes(): void {
+    clear(this.emoteList);
+    this.project.emotes.forEach((emote, index) => {
+      const row = el("div", "emote-row");
+
+      const top = el("div", "row");
+      const keyInput = el("input");
+      keyInput.type = "text";
+      keyInput.value = emote.key;
+      keyInput.title = "Block name (used as the motion file name)";
+      keyInput.addEventListener("change", () => {
+        const next = keyInput.value.trim() || emote.key;
+        if (next !== emote.key) emote.key = next;
+        this.renderEmotes();
+        this.renderCamera();
+      });
+      const nameInput = el("input");
+      nameInput.type = "text";
+      nameInput.value = emote.name;
+      nameInput.title = "Button label";
+      nameInput.addEventListener("change", () => {
+        emote.name = nameInput.value.trim();
+      });
+      top.append(keyInput, nameInput);
+      top.appendChild(button("×", () => {
+        this.project.emotes.splice(index, 1);
+        if (this.selectedEmote === emote.key) this.selectedEmote = null;
+        this.renderEmotes();
+        this.renderCamera();
+        this.renderStatus();
+      }, "danger small"));
+      row.appendChild(top);
+
+      const loopRow = el("div", "row");
+      const loopSel = this.motionSelect(emote.anim, false);
+      loopSel.title = "Loop motion (idle + talking)";
+      loopSel.addEventListener("change", () => {
+        emote.anim = loopSel.value;
+        this.renderStatus();
+      });
+      loopRow.append(el("span", undefined, "Loop"), loopSel);
+      row.appendChild(loopRow);
+
+      const preRow = el("div", "row");
+      const preSel = this.motionSelect(emote.preanim, true);
+      preSel.title = "Intro motion (optional one-shot)";
+      preSel.addEventListener("change", () => {
+        emote.preanim = preSel.value || null;
+        this.renderStatus();
+      });
+      preRow.append(el("span", undefined, "Intro"), preSel);
+      row.appendChild(preRow);
+
+      row.appendChild(button("Frame camera", () => {
+        this.selectedEmote = emote.key;
+        this.renderCamera();
+      }, "small"));
+
+      this.emoteList.appendChild(row);
+    });
+  }
+
+  private renderCamera(): void {
+    clear(this.cameraPanel);
+
+    const emote = this.project.emotes.find((e) => e.key === this.selectedEmote) ?? null;
+    if (emote) {
+      this.cameraPanel.appendChild(el("div", "hint", `Framing "${emote.key}" — drag to orbit, scroll to zoom.`));
+      this.cameraPanel.appendChild(button(`Set "${emote.key}" loop`, () => this.capturePose("loop"), "small"));
+      this.cameraPanel.appendChild(button(`Set "${emote.key}" intro`, () => this.capturePose("preanim"), "small"));
+    } else {
+      this.cameraPanel.appendChild(el("div", "hint", "Drag to orbit · scroll to zoom. Pick an emote's \"Frame camera\" to rig it, or set the default below."));
+    }
+
+    this.cameraPanel.appendChild(button("Set default shot", () => this.capturePose("default"), "small"));
+    this.cameraPanel.appendChild(button("Auto-frame", () => this.autoFrame(), "small"));
+
+    const grid = el("div", "preset-grid");
+    for (const preset of SHOT_PRESETS) {
+      grid.appendChild(button(preset.name, () => this.applyPose(preset.pose), "small"));
+    }
+    this.cameraPanel.appendChild(grid);
+
+    const adv = el("details");
+    adv.appendChild(el("summary", undefined, "Advanced (camera.json)"));
+    const ta = el("textarea");
+    ta.value = serializeCameraRig(this.project.cameraRig);
+    adv.appendChild(ta);
+    adv.appendChild(button("Apply camera.json", () => this.applyCameraJson(ta.value), "small"));
+    this.cameraPanel.appendChild(adv);
+  }
+
+  private renderStatus(issues?: Issue[]): void {
+    const list = issues ?? validateProject(this.project);
+    const parts = [
+      this.modelFile ? `Model: ${this.project.character.model}` : "No model yet",
+      `${this.project.emotes.length} emote(s)`,
+      `${this.motionFiles.size} motion(s)`,
+    ];
+    this.status.textContent = parts.join(" · ");
+
+    clear(this.issuesBox);
+    if (list.length === 0) {
+      this.issuesBox.appendChild(el("div", "hint", "Ready to export."));
+      return;
+    }
+    for (const issue of list) {
+      const mark = issue.severity === "error" ? "✗" : "!";
+      this.issuesBox.appendChild(el("div", issue.severity, `${mark} ${issue.message}`));
+    }
+  }
+
+  private capturePose(target: "default" | "loop" | "preanim"): void {
+    if (!this.stage) return;
+    const pose = this.stage.currentPose();
+    if (target === "default") {
+      this.project.cameraRig.default = pose;
+    } else {
+      const key = this.selectedEmote;
+      if (!key) return;
+      this.project.cameraRig.emotes ??= {};
+      const entry = this.project.cameraRig.emotes[key] ??= {};
+      entry[target] = pose;
+    }
+    this.renderCamera();
+    this.renderStatus();
+  }
+
+  private applyPose(pose: Pose): void {
+    this.stage?.applyPose(pose);
+  }
+
+  private autoFrame(): void {
+    if (!this.stage) return;
+    const pose = this.stage.autoFrame();
+    this.stage.applyPose(pose);
+    this.project.cameraRig.default = pose;
+    this.renderCamera();
+    this.renderStatus();
+  }
+
+  private applyCameraJson(text: string): void {
+    try {
+      this.project.cameraRig = JSON.parse(text) as CameraRig;
+      this.renderCamera();
+      this.renderStatus();
+    } catch (err) {
+      this.renderStatus([{ severity: "error", message: `Invalid camera.json: ${String(err)}` }]);
+    }
+  }
+
+  private addEmote(): void {
+    const key = `emote_${this.project.emotes.length + 1}`;
+    this.project.emotes.push({
+      key,
+      name: key,
+      anim: key,
+      preanim: null,
+      sound: null,
+      soundDelayMs: null,
+      deskmod: null,
+      modifier: null,
+    });
+    this.renderEmotes();
+    this.renderStatus();
+  }
+
+  private saveProject(): void {
+    const text = serializeProject(this.project);
+    const name = this.project.character.name.trim() || "character";
+    downloadBytes(`${name}.greenroom.json`, new TextEncoder().encode(text), "application/json");
+  }
+
+  private openProject(): void {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.style.display = "none";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        this.project = parseProject(await file.text());
+        this.selectedEmote = null;
+        this.renderEmotes();
+        this.renderCamera();
+        this.renderStatus([
+          { severity: "warning", message: "Re-drop the model and motions to continue editing." },
+        ]);
+      } catch (err) {
+        this.renderStatus([{ severity: "error", message: `Could not open project: ${String(err)}` }]);
+      }
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  private async exportCharacter(): Promise<void> {
+    const issues = validateProject(this.project);
+    this.renderStatus(issues);
+    if (hasErrors(issues)) return;
+
+    const assets: CharFile[] = [];
+    if (this.modelFile) {
+      assets.push({ path: this.project.character.model, data: await readFile(this.modelFile) });
+    }
+
+    const emitted = new Set<string>();
+    for (const emote of this.project.emotes) {
+      const loop = this.motionFiles.get(emote.anim);
+      if (loop && !emitted.has(emote.anim)) {
+        assets.push({ path: `${emote.anim}.vmd`, data: await readFile(loop) });
+        emitted.add(emote.anim);
+      }
+      if (emote.preanim) {
+        const pre = this.motionFiles.get(emote.preanim);
+        if (pre && !emitted.has(emote.preanim)) {
+          assets.push({ path: `${emote.preanim}.vmd`, data: await readFile(pre) });
+          emitted.add(emote.preanim);
+        }
+      }
+    }
+    for (const [rel, file] of this.textureFiles) {
+      assets.push({ path: rel, data: await readFile(file) });
+    }
+
+    const folder = buildCharacterFolder({
+      character: this.project.character,
+      emotes: this.project.emotes,
+      cameraRig: this.project.cameraRig,
+      assets,
+    });
+
+    const zip = buildZip(folder.map((f) => ({ name: f.path, data: f.data })));
+    const name = this.project.character.name.trim() || "character";
+    downloadBytes(`${name}.zip`, zip, "application/zip");
+    this.renderStatus();
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "/assets/CharIni.schema.json",
+  "title": "CharIni",
+  "description": "Parsed shape of a character's char.ini asset file (not a wire packet). char.ini is INI text; this schema describes the normalized object a parser emits. The INI text grammar, the [emote <name>] block convention, and the legacy [emotions]/[soundn]/[soundt] fallback are specified in assets/README.md. Emotes are normalized to one shape for 2D and 3D; `anim` is a sprite stem for 2D characters and a base VMD stem for 3D characters (a character is 3D when options.model is set).",
+  "type": "object",
+  "properties": {
+    "options": {
+      "$ref": "#/definitions/Options"
+    },
+    "emotes": {
+      "type": "array",
+      "description": "Emote table in button order, normalized from either [emote <name>] blocks or the legacy [emotions] banks.",
+      "items": {
+        "$ref": "#/definitions/Emote"
+      }
+    },
+    "sections": {
+      "type": "object",
+      "description": "Every raw section, section/key names lowercased, values verbatim. Fallback for blocks this schema does not model (shouts, [Time], frame effects).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "required": [
+    "options",
+    "emotes",
+    "sections"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "Options": {
+      "type": "object",
+      "description": "The [options] block. Common keys are typed; the rest stay on the index. `model` (a .pmx file) marks the character as 3D.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "showname": {
+          "type": "string",
+          "default": ""
+        },
+        "side": {
+          "type": "string",
+          "default": ""
+        },
+        "gender": {
+          "type": "string",
+          "default": ""
+        },
+        "blips": {
+          "type": "string",
+          "default": ""
+        },
+        "chat": {
+          "type": "string",
+          "default": ""
+        },
+        "category": {
+          "type": "string",
+          "default": ""
+        },
+        "model": {
+          "type": "string",
+          "description": "PMX model file for a 3D character; absent/empty for 2D.",
+          "default": ""
+        }
+      },
+      "required": [
+        "name",
+        "showname",
+        "side",
+        "gender",
+        "blips",
+        "chat",
+        "category"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "Emote": {
+      "type": "object",
+      "description": "One normalized emote. The same shape covers 2D and 3D; which optional fields matter depends on the character mode.",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "1-based position in the emote button list.",
+          "minimum": 1
+        },
+        "key": {
+          "type": "string",
+          "description": "Stable string identity, shared with camera.json and (by default) the animation file name. The block name for [emote <name>] characters; the stringified id for legacy characters."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display label shown on the emote button.",
+          "default": ""
+        },
+        "anim": {
+          "type": "string",
+          "description": "Animation file name. For 2D it is a sprite base name; for 3D it is the base loop VMD file (e.g. \"idle.vmd\"; idle and talking share it, mouth is morph-driven).",
+          "default": ""
+        },
+        "preanim": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pre-animation file name (sprite for 2D, e.g. \"point.vmd\" for 3D), or null when none.",
+          "default": null
+        },
+        "modifier": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Symbolic emote modifier (e.g. \"zoom\", \"preanim\"), or null for none. Readers should also accept the legacy integer encoding (0 = none, 1 = preanim, 5 = zoom).",
+          "default": null
+        },
+        "deskmod": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Symbolic desk modifier (e.g. \"shown\", \"hidden\"), or null. Readers should also accept the legacy integer encoding.",
+          "default": null
+        },
+        "sound": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Sound-effect name for this emote, or null.",
+          "default": null
+        },
+        "soundDelayMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Sound delay in milliseconds, or null. Readers should also accept the legacy `sounddelay` key.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "name",
+        "anim",
+        "preanim",
+        "modifier",
+        "deskmod",
+        "sound",
+        "soundDelayMs"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
