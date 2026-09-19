@@ -64,9 +64,10 @@ character folder. Drop that folder into AO2/webAO (or your AO server's
 
 ## Troubleshooting
 
-- **Model won't load / textures missing:** make sure you dropped the model
-  *together with* its texture files (a `.pmx` references textures by relative
-  path). Some models from game rips need their textures in a matching folder.
+- **Model won't load / textures missing:** drop the model *together with* its
+  textures. They can live in a subfolder (e.g. `Texture2D/` — UmaViewer exports
+  them there); Greenroom reads the model's texture list and matches the files by
+  name, recursively, so the folder doesn't matter.
 - **Emote got the wrong motion:** just pick the right one in the **Loop** /
   **Intro** dropdown.
 - **Character looks tiny or huge:** click **Auto-frame** and re-export.

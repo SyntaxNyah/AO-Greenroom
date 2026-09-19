@@ -67,6 +67,12 @@ test/                    vitest suites for the pure engine
 - **char.ini emits extensions** (`anim = idle.vmd`, `sound = objection.opus`)
   and `sounddelayms` in milliseconds; `modifier`/`deskmod` are symbolic
   (`zoom`, `shown`). Readers accept both symbolic and legacy numeric forms.
+- **Textures resolve from dropped files, not the blob URL.** `mmdStage.loadModel`
+  takes `TextureAsset[]`; the UI reads the PMX texture table
+  (`stage/pmxTextures.ts`), matches dropped files by basename, then passes them
+  to babylon-mmd as `referenceFiles` (typed `IArrayBufferFile`, cast to
+  `File[]`). Without this a model loaded from a blob URL renders with no
+  textures. Folder structure is captured via `webkitGetAsEntry` on drop.
 
 ## How to add a camera feature
 

@@ -10,6 +10,8 @@ import { buildZip } from "../export/zip";
 import { hasErrors, validateProject, type Issue } from "../export/validate";
 import { guessMotionRole, motionStem } from "../stage/motionLibrary";
 import type { MmdStage } from "../stage/mmdStage";
+import { parsePmxTexturePaths } from "../stage/pmxTextures";
+import type { TextureAsset } from "../stage/referenceFiles";
 import { button, clear, downloadBytes, el } from "./dom";
 
 const SHOT_PRESETS: Array<{ name: string; pose: Pose }> = [
@@ -23,6 +25,52 @@ const SHOT_PRESETS: Array<{ name: string; pose: Pose }> = [
 
 const readFile = (file: File): Promise<Uint8Array> =>
   file.arrayBuffer().then((b) => new Uint8Array(b));
+
+async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const out: FileSystemEntry[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+      reader.readEntries(resolve, reject),
+    );
+    if (batch.length === 0) break;
+    out.push(...batch);
+  }
+  return out;
+}
+
+async function entryToFiles(entry: FileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) =>
+      (entry as FileSystemFileEntry).file(resolve, reject),
+    );
+    return [file];
+  }
+  if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    const children = await readAllEntries(reader);
+    const files: File[] = [];
+    for (const child of children) files.push(...(await entryToFiles(child)));
+    return files;
+  }
+  return [];
+}
+
+/** Collects dropped files, preserving folder structure via webkitGetAsEntry
+ *  (so `Texture2D/tex.png` keeps its relative path) and falling back to the
+ *  flat `files` list on browsers without it. */
+async function getFilesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
+  const items = Array.from(dt.items ?? []);
+  const first = items[0];
+  if (first && typeof first.webkitGetAsEntry === "function") {
+    const files: File[] = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry();
+      if (entry) files.push(...(await entryToFiles(entry)));
+    }
+    if (files.length > 0) return files;
+  }
+  return Array.from(dt.files ?? []);
+}
 
 export class App {
   private stage: MmdStage | null = null;
@@ -94,7 +142,7 @@ export class App {
     drop.addEventListener("drop", (e) => {
       e.preventDefault();
       drop.classList.remove("over");
-      this.onFiles(Array.from(e.dataTransfer?.files ?? []));
+      if (e.dataTransfer) void this.onDrop(e.dataTransfer);
     });
     drop.addEventListener("click", () => this.pickFiles());
 
@@ -169,7 +217,8 @@ export class App {
       if (this.stage) {
         this.hint.style.display = "none";
         try {
-          await this.stage.loadModel(model);
+          const textures = await this.resolveTextures(model, others);
+          await this.stage.loadModel(model, textures);
           this.applyPose(this.stage.autoFrame());
           this.project.cameraRig.default = this.stage.autoFrame();
         } catch (err) {
@@ -209,6 +258,41 @@ export class App {
     this.renderEmotes();
     this.renderCamera();
     this.renderStatus();
+  }
+
+  private async onDrop(dt: DataTransfer): Promise<void> {
+    const files = await getFilesFromDataTransfer(dt);
+    await this.onFiles(files);
+  }
+
+  /** Maps the model's referenced texture paths to the dropped texture files,
+   *  matching by basename so the `Texture2D/` subfolder is handled correctly. */
+  private async resolveTextures(model: File, others: File[]): Promise<TextureAsset[]> {
+    const byBasename = new Map<string, File>();
+    for (const file of others) {
+      const rel = (file.webkitRelativePath || file.name).replace(/\\/g, "/");
+      const base = rel.split("/").pop() ?? file.name;
+      if (!byBasename.has(base.toLowerCase())) byBasename.set(base.toLowerCase(), file);
+    }
+
+    let paths: string[] | null = null;
+    try {
+      paths = parsePmxTexturePaths(await model.arrayBuffer());
+    } catch {
+      paths = null;
+    }
+
+    if (paths && paths.length > 0) {
+      const assets: TextureAsset[] = [];
+      for (const path of paths) {
+        const base = path.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? "";
+        const file = byBasename.get(base);
+        if (file) assets.push({ path, file });
+      }
+      if (assets.length > 0) return assets;
+    }
+
+    return others.map((file) => ({ path: file.webkitRelativePath || file.name, file }));
   }
 
   private async ensureStage(): Promise<void> {

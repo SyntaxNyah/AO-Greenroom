@@ -28,6 +28,7 @@ import type { MmdRuntimeAnimationHandle } from "babylon-mmd/esm/Runtime/mmdRunti
 
 import type { Pose } from "../model/project";
 import { autoFramePose } from "./frameFromSkeleton";
+import { buildReferenceFiles, type TextureAsset } from "./referenceFiles";
 
 export interface MotionInfo {
   stem: string;
@@ -107,11 +108,19 @@ export class MmdStage {
     return this.model !== null;
   }
 
-  async loadModel(file: File): Promise<void> {
+  async loadModel(file: File, textures: TextureAsset[] = []): Promise<void> {
     const url = URL.createObjectURL(file);
     try {
+      const referenceFiles = await buildReferenceFiles(textures);
       const result = await ImportMeshAsync(url, this.scene, {
-        pluginOptions: { mmdmodel: { materialBuilder: this.materialBuilder } },
+        pluginOptions: {
+          mmdmodel: {
+            materialBuilder: this.materialBuilder,
+            // Provide the dropped textures so relative paths resolve even
+            // though the model itself loads from a blob URL.
+            referenceFiles: referenceFiles as unknown as File[],
+          },
+        },
       });
 
       const mesh = result.meshes[0] as MmdMesh | undefined;
