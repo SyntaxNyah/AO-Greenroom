@@ -113,40 +113,36 @@ export class MmdStage {
   }
 
   async loadModel(file: File, textures: TextureAsset[] = []): Promise<void> {
-    const url = URL.createObjectURL(file);
-    try {
-      const referenceFiles = await buildReferenceFiles(textures);
-      const result = await ImportMeshAsync(url, this.scene, {
-        pluginOptions: {
-          mmdmodel: {
-            materialBuilder: this.materialBuilder,
-            // Provide the dropped textures so relative paths resolve even
-            // though the model itself loads from a blob URL.
-            referenceFiles: referenceFiles as unknown as File[],
-          },
+    const referenceFiles = await buildReferenceFiles(textures);
+    const result = await ImportMeshAsync(file, this.scene, {
+      pluginOptions: {
+        mmdmodel: {
+          materialBuilder: this.materialBuilder,
+          // Provide the dropped textures so relative paths resolve. Pass the
+          // File itself (not a blob URL) so Babylon can pick the .pmx plugin
+          // from the filename extension — a blob URL has none.
+          referenceFiles: referenceFiles as unknown as File[],
         },
-      });
+      },
+    });
 
-      const mesh = result.meshes[0] as MmdMesh | undefined;
-      if (!mesh) throw new Error("No mesh found in the model file.");
+    const mesh = result.meshes[0] as MmdMesh | undefined;
+    if (!mesh) throw new Error("No mesh found in the model file.");
 
-      // Measure the rest-pose skeleton before the runtime disables standard
-      // bone world-matrix updates (see the MmdModel docs).
-      const extent = this.measureExtent(result.skeletons?.[0] as SkeletonLike | undefined, mesh);
-      this.charHeight = Math.max(extent.maxY - extent.minY, 1e-3);
+    // Measure the rest-pose skeleton before the runtime disables standard
+    // bone world-matrix updates (see the MmdModel docs).
+    const extent = this.measureExtent(result.skeletons?.[0] as SkeletonLike | undefined, mesh);
+    this.charHeight = Math.max(extent.maxY - extent.minY, 1e-3);
 
-      this.disposeModel();
-      this.mesh = mesh;
-      this.model = this.runtime.createMmdModel(mesh);
+    this.disposeModel();
+    this.mesh = mesh;
+    this.model = this.runtime.createMmdModel(mesh);
 
-      this.feetY = 0;
-      // Shift feet to the origin so height-normalized poses map cleanly.
-      mesh.position.y += -extent.minY;
+    this.feetY = 0;
+    // Shift feet to the origin so height-normalized poses map cleanly.
+    mesh.position.y += -extent.minY;
 
-      this.applyPose(this.autoFrame());
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    this.applyPose(this.autoFrame());
   }
 
   async loadMotion(file: File): Promise<MotionInfo> {
