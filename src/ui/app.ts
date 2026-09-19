@@ -112,6 +112,7 @@ export class App {
   private textureFiles = new Map<string, File>();
   private selectedEmote: string | null = null;
   private motionWarnings: string[] = [];
+  private mirrorMotion = false;
 
   private canvas!: HTMLCanvasElement;
   private hint!: HTMLDivElement;
@@ -198,6 +199,18 @@ export class App {
       " to import a model plus its textures and motions reliably - it uploads the whole folder including subfolders (dragging folders is inconsistent across browsers).",
     );
     section.appendChild(tip);
+
+    const mirrorRow = el("label", "hint");
+    const mirrorCheck = document.createElement("input");
+    mirrorCheck.type = "checkbox";
+    mirrorCheck.title =
+      "Flip the motion horizontally for models that are mirrored left/right vs standard MMD (experimental).";
+    mirrorRow.append(mirrorCheck, " Mirror motion (experimental)");
+    mirrorCheck.addEventListener("change", () => {
+      this.mirrorMotion = mirrorCheck.checked;
+      this.stage?.setMirrorMotion(this.mirrorMotion);
+    });
+    section.appendChild(mirrorRow);
 
     this.status = el("div", "hint");
     section.appendChild(this.status);
@@ -399,6 +412,7 @@ export class App {
     const { createStage } = await import("../stage/mmdStage");
     this.stage = await createStage(this.canvas);
     this.stage.setOrbit(true);
+    if (this.mirrorMotion) this.stage.setMirrorMotion(true);
   }
 
   private autoAssignMotions(): void {

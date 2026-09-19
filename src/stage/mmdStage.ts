@@ -63,6 +63,7 @@ export class MmdStage {
   private charHeight = 1;
   private feetY = 0;
   private looping = false;
+  private mirrorMotion = false;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -159,6 +160,7 @@ export class MmdStage {
     try {
       const anim = await this.vmdLoader.loadAsync(url, url);
       this.motions.set(stem, anim);
+      if (this.mirrorMotion) this.mirrorAnimation(anim);
       const durationMs = (anim.endFrame / 30) * 1000;
       const animationBoneNames = this.animationBoneNames(anim);
       const binding = this.model
@@ -229,6 +231,30 @@ export class MmdStage {
       this.handle = null;
     }
     this.runtime.pauseAnimation();
+  }
+
+  /** Toggles an experimental mirror correction for models whose left/right
+   *  convention is flipped relative to the standard MMD the .vmd targets
+   *  (e.g. the model's left arm is at +X instead of -X). Mirrors every bone
+   *  rotation across the Y-Z plane (negates the quaternion y/z components).
+   *  The runtime reads track data live, so the change applies immediately. */
+  setMirrorMotion(on: boolean): void {
+    if (on === this.mirrorMotion) return;
+    this.mirrorMotion = on;
+    for (const anim of this.motions.values()) this.mirrorAnimation(anim);
+    console.log(`[mmd] mirror motion ${on ? "on" : "off"}`);
+  }
+
+  private mirrorAnimation(anim: MmdAnimation): void {
+    for (const track of anim.boneTracks) this.mirrorRotations(track.rotations);
+    for (const track of anim.movableBoneTracks) this.mirrorRotations(track.rotations);
+  }
+
+  private mirrorRotations(r: Float32Array): void {
+    for (let i = 0; i < r.length; i += 4) {
+      r[i + 1] = -r[i + 1]!; // y
+      r[i + 2] = -r[i + 2]!; // z
+    }
   }
 
   /** The default resting shot, derived from the skeleton (feet near bottom). */
