@@ -129,3 +129,19 @@ export function countBindableBones(
   }
   return { matched, total: animationBoneNames.length, retargeted };
 }
+
+/** Bones MMD treats as translatable ("movable") — these carry position
+ *  animation in a .vmd. Every other bone is rotation-only. */
+const MOVABLE_BONE_NAMES = new Set(["センター", "グルーブ", "腰"]);
+
+/**
+ * Returns true if a .vmd bone name is a movable (translatable) bone: the
+ * standard MMD センター/グルーブ/腰 roots plus every IK target (*ＩＫ).
+ *
+ * babylon-mmd instead flags a track as "movable" whenever it has any non-zero
+ * position, which misreads UmaViewer VMDs (they write a position for every
+ * bone) and ends up translating limbs that should only rotate.
+ */
+export function isMovableBoneName(name: string): boolean {
+  return name.endsWith("ＩＫ") || MOVABLE_BONE_NAMES.has(name);
+}

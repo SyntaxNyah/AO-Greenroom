@@ -21,8 +21,25 @@ function stringify(value: unknown): string {
   return String(value);
 }
 
+// Benign babylon-mmd warnings we expect when a motion was made for a different
+// model: missing IK solvers and morphs that don't exist on this model. Filtered
+// from the diagnostics dump (still shown in the live console).
+const NOISE_PATTERNS = [
+  /Binding failed: bone .*ＩＫ not found/,
+  /Binding failed: IK bone .* not found/,
+  /Binding failed: runtime bone .*ＩＫ not found/,
+  /Binding failed: morph .* not found/,
+];
+
+function isNoise(level: LogEntry["level"], msg: string): boolean {
+  if (level !== "warn") return false;
+  return NOISE_PATTERNS.some((pattern) => pattern.test(msg));
+}
+
 function capture(level: LogEntry["level"], args: unknown[]): void {
-  entries.push({ level, msg: args.map(stringify).join(" ") });
+  const msg = args.map(stringify).join(" ");
+  if (isNoise(level, msg)) return;
+  entries.push({ level, msg });
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
 }
 

@@ -20,17 +20,19 @@ import "babylon-mmd/esm/Runtime/Animation/mmdRuntimeModelAnimation";
 import { SdefInjector } from "babylon-mmd/esm/Loader/sdefInjector";
 import { MmdStandardMaterialBuilder } from "babylon-mmd/esm/Loader/mmdStandardMaterialBuilder";
 import { VmdLoader } from "babylon-mmd/esm/Loader/vmdLoader";
+import { MmdBoneAnimationTrack, MmdMovableBoneAnimationTrack } from "babylon-mmd/esm/Loader/Animation/mmdAnimationTrack";
 import { MmdRuntime } from "babylon-mmd/esm/Runtime/mmdRuntime";
 import type { MmdMesh } from "babylon-mmd/esm/Runtime/mmdMesh";
 import type { MmdModel } from "babylon-mmd/esm/Runtime/mmdModel";
 import type { MmdAnimation } from "babylon-mmd/esm/Loader/Animation/mmdAnimation";
 import type { MmdRuntimeAnimationHandle } from "babylon-mmd/esm/Runtime/mmdRuntimeAnimationHandle";
 import type { Bone } from "@babylonjs/core/Bones/bone";
+import type { Skeleton } from "@babylonjs/core/Bones/skeleton";
 
 import type { Pose } from "../model/project";
 import { autoFramePose } from "./frameFromSkeleton";
 import { buildReferenceFiles, type TextureAsset } from "./referenceFiles";
-import { buildRetargetingMap, countBindableBones } from "./boneRetarget";
+import { buildRetargetingMap, countBindableBones, isMovableBoneName } from "./boneRetarget";
 
 export interface MotionInfo {
   stem: string;
@@ -58,6 +60,7 @@ export class MmdStage {
 
   private model: MmdModel | null = null;
   private mesh: MmdMesh | null = null;
+  private skeleton: Skeleton | null = null;
   private handle: MmdRuntimeAnimationHandle | null = null;
   private readonly motions = new Map<string, MmdAnimation>();
 
@@ -146,6 +149,7 @@ export class MmdStage {
     this.disposeModel();
     this.mesh = mesh;
     this.model = this.runtime.createMmdModel(mesh);
+    this.skeleton = result.skeletons?.[0] ?? null;
 
     this.feetY = 0;
     // Shift feet to the origin so height-normalized poses map cleanly.
@@ -159,6 +163,7 @@ export class MmdStage {
     const stem = file.name.replace(/\.vmd$/i, "");
     try {
       const anim = await this.vmdLoader.loadAsync(url, url);
+      this.reclassifyMovableTracks(anim);
       this.motions.set(stem, anim);
       const durationMs = (anim.endFrame / 30) * 1000;
       const animationBoneNames = this.animationBoneNames(anim);
@@ -233,6 +238,41 @@ export class MmdStage {
   }
 
   /**
+   * babylon-mmd flags any .vmd track with a non-zero position as "movable" and
+   * then applies that position as a translation on top of the bone's rest
+   * position. UmaViewer VMDs write a position for every bone, so this
+   * re-classifies them: only true movable bones (センター/グルーブ/腰/IK) keep
+   * their position; everything else becomes a rotation-only bone track.
+   */
+  private reclassifyMovableTracks(anim: MmdAnimation): void {
+    const boneTracks = anim.boneTracks as MmdBoneAnimationTrack[];
+    const movableTracks = anim.movableBoneTracks as MmdMovableBoneAnimationTrack[];
+
+    const keptMovable: MmdMovableBoneAnimationTrack[] = [];
+    const converted: MmdBoneAnimationTrack[] = [];
+    for (const track of movableTracks) {
+      if (isMovableBoneName(track.name)) {
+        keptMovable.push(track);
+        continue;
+      }
+      const boneTrack = new MmdBoneAnimationTrack(track.name, track.frameNumbers.length);
+      boneTrack.frameNumbers.set(track.frameNumbers);
+      boneTrack.rotations.set(track.rotations);
+      boneTrack.rotationInterpolations.set(track.rotationInterpolations);
+      boneTrack.physicsToggles.set(track.physicsToggles);
+      converted.push(boneTrack);
+    }
+
+    movableTracks.length = 0;
+    movableTracks.push(...keptMovable);
+    boneTracks.push(...converted);
+
+    console.log(
+      `[mmd] reclassified tracks: ${converted.length} movable -> bone, ${keptMovable.length} kept movable`,
+    );
+  }
+
+  /**
    * Dumps the model's bone coordinates and the loaded motions' track
    * coordinates. Used to diagnose retarget / coordinate-convention mismatches
    * (e.g. a model whose bone rest-orientations aren't the standard MMD
@@ -241,7 +281,7 @@ export class MmdStage {
   diagnostics(): string {
     const lines: string[] = ["=== MMD coordinate dump ==="];
 
-    const skeleton = this.mesh?.skeleton;
+    const skeleton = this.skeleton;
     if (skeleton) {
       const bones = skeleton.bones;
       const restMats = bones.map((b) => b.getRestMatrix().clone());
@@ -340,6 +380,7 @@ export class MmdStage {
       this.mesh.dispose(false, true);
       this.mesh = null;
     }
+    this.skeleton = null;
     this.handle = null;
   }
 

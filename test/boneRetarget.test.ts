@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRetargetingMap, countBindableBones } from "../src/stage/boneRetarget";
+import { buildRetargetingMap, countBindableBones, isMovableBoneName } from "../src/stage/boneRetarget";
 
 // Mirrors a Fenomeno-style model: English bone names with a humanoid skeleton.
 const ENGLISH_MODEL = [
@@ -116,5 +116,23 @@ describe("countBindableBones", () => {
     const result = countBindableBones(["Tail_Ctrl", "Ear_01_L"], ["頭", "首"]);
     expect(result.matched).toBe(0);
     expect(result.total).toBe(2);
+  });
+});
+
+describe("isMovableBoneName", () => {
+  it("marks the standard translatable bones and IK targets", () => {
+    expect(isMovableBoneName("センター")).toBe(true);
+    expect(isMovableBoneName("グルーブ")).toBe(true);
+    expect(isMovableBoneName("腰")).toBe(true);
+    expect(isMovableBoneName("左足ＩＫ")).toBe(true);
+    expect(isMovableBoneName("右つま先ＩＫ")).toBe(true);
+  });
+
+  it("treats every other bone as rotation-only", () => {
+    expect(isMovableBoneName("上半身")).toBe(false);
+    expect(isMovableBoneName("頭")).toBe(false);
+    expect(isMovableBoneName("左腕")).toBe(false);
+    expect(isMovableBoneName("左足")).toBe(false);
+    expect(isMovableBoneName("首")).toBe(false);
   });
 });
