@@ -218,6 +218,13 @@ export class App {
     const motions = files.filter((f) => /\.vmd$/i.test(f.name));
     const others = files.filter((f) => !/\.(pmx|vmd)$/i.test(f.name));
 
+    // Accumulate dropped textures (folder drops included) so they can be
+    // applied to a model loaded now or in a later drop.
+    for (const other of others) {
+      const rel = other.webkitRelativePath || other.name;
+      this.textureFiles.set(rel, other);
+    }
+
     if (model) {
       this.modelFile = model;
       this.project.character.model = model.name;
@@ -225,8 +232,8 @@ export class App {
       if (this.stage) {
         this.hint.style.display = "none";
         try {
-          const textures = await this.resolveTextures(model, others);
-          console.log(`[app] model "${model.name}" -> ${textures.length} textures from ${others.length} dropped non-model files`);
+          const textures = await this.resolveTextures(model);
+          console.log(`[app] model "${model.name}" -> ${textures.length} textures from ${this.textureFiles.size} accumulated`);
           await this.stage.loadModel(model, textures);
           this.applyPose(this.stage.autoFrame());
           this.project.cameraRig.default = this.stage.autoFrame();
@@ -234,6 +241,17 @@ export class App {
           console.error("[app] could not load model:", err);
           this.renderStatus([{ severity: "error", message: `Could not load model: ${String(err)}` }]);
         }
+      }
+    } else if (others.length > 0 && this.modelFile && this.stage?.ready) {
+      // Textures dropped on their own: re-apply them to the loaded model.
+      try {
+        const textures = await this.resolveTextures(this.modelFile);
+        console.log(`[app] re-applying ${textures.length} textures to loaded model`);
+        await this.stage.loadModel(this.modelFile, textures);
+        this.applyPose(this.stage.autoFrame());
+      } catch (err) {
+        console.error("[app] could not re-apply textures:", err);
+        this.renderStatus([{ severity: "error", message: `Could not apply textures: ${String(err)}` }]);
       }
     }
 
@@ -260,11 +278,6 @@ export class App {
       }
     }
 
-    for (const other of others) {
-      const rel = other.webkitRelativePath || other.name;
-      this.textureFiles.set(rel, other);
-    }
-
     if (motions.length > 0) {
       this.autoAssignMotions();
       this.playIdleMotion();
@@ -281,9 +294,10 @@ export class App {
 
   /** Maps the model's referenced texture paths to the dropped texture files,
    *  matching by basename so the `Texture2D/` subfolder is handled correctly. */
-  private async resolveTextures(model: File, others: File[]): Promise<TextureAsset[]> {
+  private async resolveTextures(model: File): Promise<TextureAsset[]> {
+    const files = Array.from(this.textureFiles.values());
     const byBasename = new Map<string, File>();
-    for (const file of others) {
+    for (const file of files) {
       const rel = (file.webkitRelativePath || file.name).replace(/\\/g, "/");
       const base = rel.split("/").pop() ?? file.name;
       if (!byBasename.has(base.toLowerCase())) byBasename.set(base.toLowerCase(), file);
@@ -306,7 +320,7 @@ export class App {
       if (assets.length > 0) return assets;
     }
 
-    return others.map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+    return files.map((file) => ({ path: file.webkitRelativePath || file.name, file }));
   }
 
   private async ensureStage(): Promise<void> {
