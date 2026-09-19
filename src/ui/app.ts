@@ -13,6 +13,7 @@ import type { MmdStage } from "../stage/mmdStage";
 import { parsePmxTexturePaths } from "../stage/pmxTextures";
 import type { TextureAsset } from "../stage/referenceFiles";
 import { button, clear, downloadBytes, el } from "./dom";
+import { diagnosticsDump } from "./diagnostics";
 
 const SHOT_PRESETS: Array<{ name: string; pose: Pose }> = [
   { name: "Full body", pose: { targetY: 0.57, distance: 2.3, yaw: 0, pitch: 0 } },
@@ -98,6 +99,8 @@ export class App {
     header.appendChild(button("Open project", () => this.openProject()));
     header.appendChild(button("Save project", () => this.saveProject()));
     header.appendChild(button("Export character", () => this.exportCharacter(), "primary"));
+    const copyLogsBtn = button("Copy logs", () => void this.copyLogs(copyLogsBtn));
+    header.appendChild(copyLogsBtn);
     root.appendChild(header);
 
     const main = el("main");
@@ -223,10 +226,12 @@ export class App {
         this.hint.style.display = "none";
         try {
           const textures = await this.resolveTextures(model, others);
+          console.log(`[app] model "${model.name}" -> ${textures.length} textures from ${others.length} dropped non-model files`);
           await this.stage.loadModel(model, textures);
           this.applyPose(this.stage.autoFrame());
           this.project.cameraRig.default = this.stage.autoFrame();
         } catch (err) {
+          console.error("[app] could not load model:", err);
           this.renderStatus([{ severity: "error", message: `Could not load model: ${String(err)}` }]);
         }
       }
@@ -238,6 +243,7 @@ export class App {
       if (this.stage) {
         try {
           const info = await this.stage.loadMotion(motion);
+          console.log(`[app] motion loaded: "${stem}" (${info.durationMs}ms)`);
           const existing = this.project.motions.find((m) => m.stem === stem);
           if (existing) existing.durationMs = info.durationMs;
           else {
@@ -248,8 +254,8 @@ export class App {
               durationMs: info.durationMs,
             });
           }
-        } catch {
-          // Ignore unreadable motion files.
+        } catch (err) {
+          console.error(`[app] could not load motion "${motion.name}":`, err);
         }
       }
     }
@@ -488,13 +494,32 @@ export class App {
   }
 
   /** Plays a motion by stem for live preview. */
-  private playMotion(stem: string, loop: boolean): void {
-    void this.stage?.playMotion(stem, loop);
+  private async playMotion(stem: string, loop: boolean): Promise<void> {
+    try {
+      await this.stage?.playMotion(stem, loop);
+    } catch (err) {
+      console.error(`[app] playMotion("${stem}") failed:`, err);
+    }
   }
 
   /** Stops the current motion and returns the model to its rest pose. */
   private stopMotion(): void {
     this.stage?.stopMotion();
+  }
+
+  /** Copies the captured diagnostics log to the clipboard for easy sharing. */
+  private async copyLogs(btn: HTMLButtonElement): Promise<void> {
+    const text = diagnosticsDump();
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = "Copied ✓";
+    } catch {
+      downloadBytes("ao-greenroom-logs.txt", new TextEncoder().encode(text), "text/plain");
+      btn.textContent = "Downloaded ✓";
+    }
+    setTimeout(() => {
+      btn.textContent = "Copy logs";
+    }, 1600);
   }
 
   /** Auto-plays the idle emote's loop motion so the model animates on import. */
@@ -503,7 +528,7 @@ export class App {
     const idle = this.project.emotes.find(
       (e) => e.key.toLowerCase() === "idle" && this.motionFiles.has(e.anim),
     );
-    if (idle) this.playMotion(idle.anim, true);
+    if (idle) void this.playMotion(idle.anim, true);
   }
 
   private autoFrame(): void {

@@ -92,6 +92,7 @@ export class MmdStage {
     // scene render loop. Without this, MmdModel.worldTransformMatrices is never
     // populated and the model's vertices all collapse to the origin (invisible).
     this.runtime.register(this.scene);
+    this.runtime.loggingEnabled = true;
     this.vmdLoader = new VmdLoader(this.scene);
 
     // Restart the base loop from 0 when it reaches the end (one-shots hold).
@@ -118,6 +119,7 @@ export class MmdStage {
       pluginOptions: {
         mmdmodel: {
           materialBuilder: this.materialBuilder,
+          loggingEnabled: true,
           // Provide the dropped textures so relative paths resolve. Pass the
           // File itself (not a blob URL) so Babylon can pick the .pmx plugin
           // from the filename extension — a blob URL has none.
@@ -128,6 +130,7 @@ export class MmdStage {
 
     const mesh = result.meshes[0] as MmdMesh | undefined;
     if (!mesh) throw new Error("No mesh found in the model file.");
+    console.log(`[mmd] model loaded: ${result.meshes.length} meshes, ${result.skeletons?.[0]?.bones.length ?? 0} bones, ${referenceFiles.length} reference files`);
 
     // Measure the rest-pose skeleton before the runtime disables standard
     // bone world-matrix updates (see the MmdModel docs).
@@ -160,15 +163,19 @@ export class MmdStage {
 
   async playMotion(stem: string, loop: boolean): Promise<void> {
     const anim = this.motions.get(stem);
-    if (!anim || !this.model) return;
+    if (!anim || !this.model) {
+      console.warn(`[mmd] playMotion skipped: ${!anim ? `no motion "${stem}"` : "no model"}`);
+      return;
+    }
     if (this.handle) {
       this.model.destroyRuntimeAnimation(this.handle);
     }
     this.handle = this.model.createRuntimeAnimation(anim);
     this.model.setRuntimeAnimation(this.handle);
     this.looping = loop;
-    this.runtime.seekAnimation(0, true);
+    await this.runtime.seekAnimation(0, true);
     this.runtime.playAnimation();
+    console.log(`[mmd] playing "${stem}" (loop=${loop})`);
   }
 
   /** Stops motion playback and returns the model to a neutral pose. */
