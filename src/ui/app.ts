@@ -63,10 +63,18 @@ async function getFilesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
   const items = Array.from(dt.items ?? []);
   const first = items[0];
   if (first && typeof first.webkitGetAsEntry === "function") {
-    const files: File[] = [];
+    // DataTransfer items are only valid during the synchronous part of the
+    // drop event, so capture every entry up front — before any await — then
+    // traverse them asynchronously. Otherwise later items (e.g. a folder
+    // dropped alongside the .pmx) get dropped from the result.
+    const entries: FileSystemEntry[] = [];
     for (const item of items) {
       const entry = item.webkitGetAsEntry();
-      if (entry) files.push(...(await entryToFiles(entry)));
+      if (entry) entries.push(entry);
+    }
+    const files: File[] = [];
+    for (const entry of entries) {
+      files.push(...(await entryToFiles(entry)));
     }
     if (files.length > 0) return files;
   }
