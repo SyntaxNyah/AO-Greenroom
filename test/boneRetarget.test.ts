@@ -15,6 +15,8 @@ const ENGLISH_MODEL = [
   "Elbow_L",
   "Wrist_L",
   "Thumb_01_L",
+  "Thumb_02_L",
+  "Thumb_03_L",
   "Index_01_L",
   "Shoulder_R",
   "Arm_R",
@@ -42,6 +44,7 @@ const JAPANESE_VMD = [
   "左ひじ",
   "左手首",
   "左親指１",
+  "左親指２",
   "左人指１",
   "右肩",
   "右腕",
@@ -62,8 +65,9 @@ describe("buildRetargetingMap", () => {
     const map = buildRetargetingMap(ENGLISH_MODEL, JAPANESE_VMD);
     expect(map["Head"]).toBe("頭");
     expect(map["Neck"]).toBe("首");
-    expect(map["Chest"]).toBe("上半身");
-    expect(map["Spine"]).toBe("上半身2");
+    // UmaViewer convention: 上半身 = Spine, 上半身2 = Chest.
+    expect(map["Spine"]).toBe("上半身");
+    expect(map["Chest"]).toBe("上半身2");
     expect(map["Position"]).toBe("センター");
     expect(map["Hip"]).toBe("グルーブ");
     expect(map["Arm_L"]).toBe("左腕");
@@ -73,7 +77,9 @@ describe("buildRetargetingMap", () => {
     expect(map["Knee_L"]).toBe("左ひざ");
     expect(map["Ankle_L"]).toBe("左足首");
     expect(map["Toe_L"]).toBe("左つま先");
-    expect(map["Thumb_01_L"]).toBe("左親指１");
+    // UmaViewer convention: 親指１ = Thumb_02, 親指２ = Thumb_03.
+    expect(map["Thumb_02_L"]).toBe("左親指１");
+    expect(map["Thumb_03_L"]).toBe("左親指２");
     expect(map["Index_01_L"]).toBe("左人指１");
     expect(map["Arm_R"]).toBe("右腕");
   });

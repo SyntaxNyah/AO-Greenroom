@@ -304,6 +304,19 @@ export class MmdStage {
       });
     }
 
+    if (this.skeleton) {
+      const modelBoneNames = this.skeleton.bones.map((b) => b.name);
+      for (const [stem, anim] of this.motions) {
+        const map = buildRetargetingMap(modelBoneNames, this.animationBoneNames(anim));
+        const entries = Object.entries(map);
+        if (entries.length === 0) continue;
+        lines.push(`RETARGET "${stem}" (${entries.length} bones):`);
+        for (const [modelName, animName] of entries) {
+          lines.push(`  ${modelName} -> ${animName}`);
+        }
+      }
+    }
+
     for (const [stem, anim] of this.motions) {
       lines.push(`MOTION "${stem}" endFrame=${anim.endFrame}:`);
       for (const t of anim.boneTracks) {

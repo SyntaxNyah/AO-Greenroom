@@ -16,8 +16,11 @@ const BONES: CanonicalBone[] = [
   { ja: "グルーブ", en: ["Groove", "Hip", "Pelvis"] },
   { ja: "腰", en: ["Waist", "Koshi"] },
   { ja: "下半身", en: ["LowerBody", "UnderBody"] },
-  { ja: "上半身", en: ["UpperBody", "Chest", "Body"] },
-  { ja: "上半身2", en: ["UpperBody2", "Spine", "Body2"] },
+  // UmaViewer maps 上半身 -> "Spine" and 上半身2 -> "Chest" (see its
+  // UnityHumanoidVMDRecorder BoneDictionary), so the Uma-derived names come
+  // first here even though many generic MMD rigs use "Chest" for 上半身.
+  { ja: "上半身", en: ["Spine", "UpperBody", "Chest", "Body"] },
+  { ja: "上半身2", en: ["Chest", "UpperBody2", "Spine", "Body2"] },
   { ja: "首", en: ["Neck"] },
   { ja: "頭", en: ["Head"] },
 
@@ -27,8 +30,10 @@ const BONES: CanonicalBone[] = [
   { ja: "左ひじ", en: ["Elbow_L", "LeftElbow", "L_Elbow"] },
   { ja: "左手首", en: ["Wrist_L", "LeftWrist", "L_Wrist"] },
   // left fingers
-  { ja: "左親指１", en: ["Thumb1_L", "Thumb_01_L", "Thumb01_L"] },
-  { ja: "左親指２", en: ["Thumb2_L", "Thumb_02_L", "Thumb02_L"] },
+  // UmaViewer skips the fixed base bone, so 親指１ = Thumb_02 and
+  // 親指２ = Thumb_03 (not Thumb_01 / Thumb_02).
+  { ja: "左親指１", en: ["Thumb_02_L", "Thumb2_L", "Thumb01_L"] },
+  { ja: "左親指２", en: ["Thumb_03_L", "Thumb3_L", "Thumb02_L"] },
   { ja: "左人指１", en: ["Index1_L", "Index_01_L", "Index01_L", "IndexFinger1_L"] },
   { ja: "左人指２", en: ["Index2_L", "Index_02_L", "Index02_L", "IndexFinger2_L"] },
   { ja: "左人指３", en: ["Index3_L", "Index_03_L", "Index03_L", "IndexFinger3_L"] },
@@ -48,8 +53,8 @@ const BONES: CanonicalBone[] = [
   { ja: "右ひじ", en: ["Elbow_R", "RightElbow", "R_Elbow"] },
   { ja: "右手首", en: ["Wrist_R", "RightWrist", "R_Wrist"] },
   // right fingers
-  { ja: "右親指１", en: ["Thumb1_R", "Thumb_01_R", "Thumb01_R"] },
-  { ja: "右親指２", en: ["Thumb2_R", "Thumb_02_R", "Thumb02_R"] },
+  { ja: "右親指１", en: ["Thumb_02_R", "Thumb2_R", "Thumb01_R"] },
+  { ja: "右親指２", en: ["Thumb_03_R", "Thumb3_R", "Thumb02_R"] },
   { ja: "右人指１", en: ["Index1_R", "Index_01_R", "Index01_R", "IndexFinger1_R"] },
   { ja: "右人指２", en: ["Index2_R", "Index_02_R", "Index02_R", "IndexFinger2_R"] },
   { ja: "右人指３", en: ["Index3_R", "Index_03_R", "Index03_R", "IndexFinger3_R"] },
