@@ -111,6 +111,7 @@ export class App {
   private modelFile: File | null = null;
   private textureFiles = new Map<string, File>();
   private selectedEmote: string | null = null;
+  private motionWarnings: string[] = [];
 
   private canvas!: HTMLCanvasElement;
   private hint!: HTMLDivElement;
@@ -189,6 +190,14 @@ export class App {
     actions.appendChild(button("Browse folder...", () => this.pickFolder(), "small"));
     actions.appendChild(button("Browse files...", () => this.pickFiles(), "small"));
     section.appendChild(actions);
+
+    const tip = el("div", "hint");
+    tip.append("Tip: use ");
+    tip.appendChild(el("b", undefined, "Browse folder..."));
+    tip.append(
+      " to import a model plus its textures and motions reliably - it uploads the whole folder including subfolders (dragging folders is inconsistent across browsers).",
+    );
+    section.appendChild(tip);
 
     this.status = el("div", "hint");
     section.appendChild(this.status);
@@ -311,6 +320,7 @@ export class App {
       }
     }
 
+    this.motionWarnings = [];
     for (const motion of motions) {
       const stem = motionStem(motion.name);
       this.motionFiles.set(stem, motion);
@@ -318,6 +328,11 @@ export class App {
         try {
           const info = await this.stage.loadMotion(motion);
           console.log(`[app] motion loaded: "${stem}" (${info.durationMs}ms)`);
+          if (info.bindableBones === 0 && info.totalBones > 0 && this.modelFile) {
+            const msg = `Motion "${stem}" matches 0 of ${info.totalBones} bones - it was likely made for a different model.`;
+            this.motionWarnings.push(msg);
+            console.warn(`[app] ${msg}`);
+          }
           const existing = this.project.motions.find((m) => m.stem === stem);
           if (existing) existing.durationMs = info.durationMs;
           else {
@@ -525,6 +540,8 @@ export class App {
 
   private renderStatus(issues?: Issue[]): void {
     const list = issues ?? validateProject(this.project);
+    const motionIssues: Issue[] = this.motionWarnings.map((m) => ({ severity: "warning", message: m }));
+    const shown = [...motionIssues, ...list];
     const parts = [
       this.modelFile ? `Model: ${this.project.character.model}` : "No model yet",
       `${this.project.emotes.length} emote(s)`,
@@ -533,11 +550,11 @@ export class App {
     this.status.textContent = parts.join(" · ");
 
     clear(this.issuesBox);
-    if (list.length === 0) {
+    if (shown.length === 0) {
       this.issuesBox.appendChild(el("div", "hint", "Ready to export."));
       return;
     }
-    for (const issue of list) {
+    for (const issue of shown) {
       const mark = issue.severity === "error" ? "✗" : "!";
       this.issuesBox.appendChild(el("div", issue.severity, `${mark} ${issue.message}`));
     }

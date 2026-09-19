@@ -29,10 +29,15 @@ import type { MmdRuntimeAnimationHandle } from "babylon-mmd/esm/Runtime/mmdRunti
 import type { Pose } from "../model/project";
 import { autoFramePose } from "./frameFromSkeleton";
 import { buildReferenceFiles, type TextureAsset } from "./referenceFiles";
+import { buildRetargetingMap, countBindableBones } from "./boneRetarget";
 
 export interface MotionInfo {
   stem: string;
   durationMs: number;
+  /** Motion bone tracks that can bind to the current model (0 = name mismatch). */
+  bindableBones: number;
+  /** Total bone tracks in the motion. */
+  totalBones: number;
 }
 
 interface SkeletonLike {
@@ -155,7 +160,16 @@ export class MmdStage {
       const anim = await this.vmdLoader.loadAsync(url, url);
       this.motions.set(stem, anim);
       const durationMs = (anim.endFrame / 30) * 1000;
-      return { stem, durationMs };
+      const animationBoneNames = this.animationBoneNames(anim);
+      const binding = this.model
+        ? countBindableBones(this.modelBoneNames(), animationBoneNames)
+        : { matched: -1, total: animationBoneNames.length, retargeted: 0 };
+      return {
+        stem,
+        durationMs,
+        bindableBones: binding.matched,
+        totalBones: binding.total,
+      };
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -163,19 +177,48 @@ export class MmdStage {
 
   async playMotion(stem: string, loop: boolean): Promise<void> {
     const anim = this.motions.get(stem);
-    if (!anim || !this.model) {
-      console.warn(`[mmd] playMotion skipped: ${!anim ? `no motion "${stem}"` : "no model"}`);
+    if (!anim) {
+      console.log(`[mmd] playMotion skipped: no motion "${stem}"`);
+      return;
+    }
+    if (!this.model) {
+      console.log("[mmd] playMotion skipped: no model");
       return;
     }
     if (this.handle) {
       this.model.destroyRuntimeAnimation(this.handle);
     }
-    this.handle = this.model.createRuntimeAnimation(anim);
+
+    const modelBoneNames = this.modelBoneNames();
+    const animationBoneNames = this.animationBoneNames(anim);
+    const retargetingMap = buildRetargetingMap(modelBoneNames, animationBoneNames);
+    const { matched, total, retargeted } = countBindableBones(modelBoneNames, animationBoneNames);
+
+    // Retarget standard Japanese MMD bone names to the model's (often English)
+    // names when they don't match directly, so humanoid VMDs can drive models
+    // exported with English bone names.
+    this.handle = this.model.createRuntimeAnimation(
+      anim,
+      Object.keys(retargetingMap).length > 0 ? retargetingMap : undefined,
+    );
     this.model.setRuntimeAnimation(this.handle);
     this.looping = loop;
     await this.runtime.seekAnimation(0, true);
     this.runtime.playAnimation();
-    console.log(`[mmd] playing "${stem}" (loop=${loop})`);
+    console.log(
+      `[mmd] playing "${stem}" (loop=${loop}) [${matched}/${total} bones bindable, ${retargeted} retargeted]`,
+    );
+  }
+
+  private modelBoneNames(): string[] {
+    return this.model?.skeleton.bones.map((b) => b.name) ?? [];
+  }
+
+  private animationBoneNames(anim: MmdAnimation): string[] {
+    return [
+      ...anim.boneTracks.map((t) => t.name),
+      ...anim.movableBoneTracks.map((t) => t.name),
+    ];
   }
 
   /** Stops motion playback and returns the model to a neutral pose. */
