@@ -19,11 +19,24 @@ export function referencePaths(path: string): string[] {
   return [normalized];
 }
 
+/** Best-effort MIME type from a filename extension, for when `File.type` is
+ *  empty (common for files obtained via drag-and-drop `webkitGetAsEntry`). */
+function mimeFromExtension(name: string): string | undefined {
+  switch (name.split(".").pop()?.toLowerCase() ?? "") {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "bmp": return "image/bmp";
+    case "tga": return "image/tga";
+    default: return undefined;
+  }
+}
+
 export async function buildReferenceFiles(textures: TextureAsset[]): Promise<IArrayBufferFile[]> {
   const out: IArrayBufferFile[] = [];
   for (const texture of textures) {
     const data = await texture.file.arrayBuffer();
-    const mimeType = texture.file.type || undefined;
+    const mimeType = texture.file.type || mimeFromExtension(texture.file.name);
     for (const relativePath of referencePaths(texture.path)) {
       out.push({ relativePath, mimeType, data });
     }

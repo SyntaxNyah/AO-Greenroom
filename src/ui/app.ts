@@ -159,7 +159,12 @@ export class App {
     head.style.alignItems = "center";
     head.style.justifyContent = "space-between";
     head.appendChild(el("h2", undefined, "2 · Emotes"));
-    head.appendChild(button("+ Add emote", () => this.addEmote(), "small"));
+    const headActions = el("div");
+    headActions.style.display = "flex";
+    headActions.style.gap = "6px";
+    headActions.appendChild(button("+ Add emote", () => this.addEmote(), "small"));
+    headActions.appendChild(button("■ Stop", () => this.stopMotion(), "small"));
+    head.appendChild(headActions);
     section.appendChild(head);
     this.emoteList = el("div");
     section.appendChild(this.emoteList);
@@ -254,7 +259,10 @@ export class App {
       this.textureFiles.set(rel, other);
     }
 
-    if (motions.length > 0) this.autoAssignMotions();
+    if (motions.length > 0) {
+      this.autoAssignMotions();
+      this.playIdleMotion();
+    }
     this.renderEmotes();
     this.renderCamera();
     this.renderStatus();
@@ -395,10 +403,15 @@ export class App {
       preRow.append(el("span", undefined, "Intro"), preSel);
       row.appendChild(preRow);
 
-      row.appendChild(button("Frame camera", () => {
+      const previewActions = el("div", "row");
+      previewActions.appendChild(button("▶ Play", () => {
+        if (emote.anim) this.playMotion(emote.anim, true);
+      }, "small"));
+      previewActions.appendChild(button("Frame camera", () => {
         this.selectedEmote = emote.key;
         this.renderCamera();
       }, "small"));
+      row.appendChild(previewActions);
 
       this.emoteList.appendChild(row);
     });
@@ -472,6 +485,25 @@ export class App {
 
   private applyPose(pose: Pose): void {
     this.stage?.applyPose(pose);
+  }
+
+  /** Plays a motion by stem for live preview. */
+  private playMotion(stem: string, loop: boolean): void {
+    void this.stage?.playMotion(stem, loop);
+  }
+
+  /** Stops the current motion and returns the model to its rest pose. */
+  private stopMotion(): void {
+    this.stage?.stopMotion();
+  }
+
+  /** Auto-plays the idle emote's loop motion so the model animates on import. */
+  private playIdleMotion(): void {
+    if (!this.stage?.ready) return;
+    const idle = this.project.emotes.find(
+      (e) => e.key.toLowerCase() === "idle" && this.motionFiles.has(e.anim),
+    );
+    if (idle) this.playMotion(idle.anim, true);
   }
 
   private autoFrame(): void {
