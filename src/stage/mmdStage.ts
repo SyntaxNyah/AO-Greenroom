@@ -88,6 +88,10 @@ export class MmdStage {
 
     this.materialBuilder = new MmdStandardMaterialBuilder();
     this.runtime = new MmdRuntime(this.scene);
+    // Required: hook the runtime's beforePhysics/afterPhysics stages into the
+    // scene render loop. Without this, MmdModel.worldTransformMatrices is never
+    // populated and the model's vertices all collapse to the origin (invisible).
+    this.runtime.register(this.scene);
     this.vmdLoader = new VmdLoader(this.scene);
 
     // Restart the base loop from 0 when it reaches the end (one-shots hold).
