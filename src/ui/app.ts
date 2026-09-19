@@ -213,6 +213,7 @@ export class App {
 
   private async onFiles(files: File[]): Promise<void> {
     if (files.length === 0) return;
+    console.log(`[app] dropped ${files.length} files: ${files.map((f) => f.name).join(", ")}`);
 
     const model = files.find((f) => /\.pmx$/i.test(f.name));
     const motions = files.filter((f) => /\.vmd$/i.test(f.name));
