@@ -33,6 +33,7 @@ import type { Pose } from "../model/project";
 import { autoFramePose } from "./frameFromSkeleton";
 import { buildReferenceFiles, type TextureAsset } from "./referenceFiles";
 import { buildRetargetingMap, countBindableBones, isMovableBoneName } from "./boneRetarget";
+import { applyTailFrames, computeTailFrames } from "./tailOrientation";
 
 export interface MotionInfo {
   stem: string;
@@ -200,6 +201,13 @@ export class MmdStage {
     const retargetingMap = buildRetargetingMap(modelBoneNames, animationBoneNames);
     const { matched, total, retargeted } = countBindableBones(modelBoneNames, animationBoneNames);
 
+    // MMD rotates each bone in its tail-aligned local frame, but babylon-mmd
+    // applies rotations with an identity rest orientation. Pre-multiply the
+    // retargeted rotations by the bone's tail frame so off-axis bones (fingers)
+    // curl the right way.
+    const tailFrames = computeTailFrames(this.model.runtimeBones);
+    const tailAdjusted = applyTailFrames(anim, retargetingMap, tailFrames);
+
     // Retarget standard Japanese MMD bone names to the model's (often English)
     // names when they don't match directly, so humanoid VMDs can drive models
     // exported with English bone names.
@@ -212,7 +220,7 @@ export class MmdStage {
     await this.runtime.seekAnimation(0, true);
     this.runtime.playAnimation();
     console.log(
-      `[mmd] playing "${stem}" (loop=${loop}) [${matched}/${total} bones bindable, ${retargeted} retargeted]`,
+      `[mmd] playing "${stem}" (loop=${loop}) [${matched}/${total} bones bindable, ${retargeted} retargeted, ${tailAdjusted} tail-corrected]`,
     );
   }
 
