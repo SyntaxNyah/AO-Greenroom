@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'experiment/**']
   pull_request:
   workflow_dispatch:
 
@@ -54,3 +54,15 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           publish_branch: gh-pages
+
+      # Preview deploy for experimental branches: publishes ./dist under a
+      # subdirectory so it doesn't clobber the main site at the repo root.
+      - name: Deploy to GitHub Pages (experimental preview)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/experiment/')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          destination_dir: experiment
+          force_orphan: false

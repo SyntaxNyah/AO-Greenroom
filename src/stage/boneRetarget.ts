@@ -80,6 +80,17 @@ const BONES: CanonicalBone[] = [
   { ja: "右足首", en: ["Ankle_R", "RightAnkle", "R_Ankle"] },
   { ja: "右つま先", en: ["Toe_R", "ToeTip_R", "RightToe", "R_Toe"] },
   { ja: "右足先EX", en: ["Toe_R", "Toe_offset_R", "ToeTip_R"] },
+
+  // face
+  { ja: "左目", en: ["Eye_L", "LeftEye", "L_Eye"] },
+  { ja: "右目", en: ["Eye_R", "RightEye", "R_Eye"] },
+  { ja: "左耳", en: ["Ear_01_L", "Ear_L", "LeftEar"] },
+  { ja: "右耳", en: ["Ear_01_R", "Ear_R", "RightEar"] },
+  { ja: "左耳1", en: ["Ear_02_L", "Ear1_L"] },
+  { ja: "右耳1", en: ["Ear_02_R", "Ear1_R"] },
+  { ja: "左耳2", en: ["Ear_03_L", "Ear2_L"] },
+  { ja: "右耳2", en: ["Ear_03_R", "Ear2_R"] },
+  { ja: "顎", en: ["Chin", "Jaw"] },
 ];
 
 /**

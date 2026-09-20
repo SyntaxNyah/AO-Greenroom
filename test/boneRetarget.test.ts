@@ -99,6 +99,19 @@ describe("buildRetargetingMap", () => {
   it("returns an empty map when nothing matches", () => {
     expect(buildRetargetingMap(["Tail_Ctrl"], ["頭"])).toEqual({});
   });
+
+  it("maps face bones (eyes/ears/jaw)", () => {
+    const map = buildRetargetingMap(
+      ["Eye_L", "Eye_R", "Ear_01_L", "Ear_02_L", "Ear_03_L", "Chin"],
+      ["左目", "右目", "左耳", "左耳1", "左耳2", "顎"],
+    );
+    expect(map["Eye_L"]).toBe("左目");
+    expect(map["Eye_R"]).toBe("右目");
+    expect(map["Ear_01_L"]).toBe("左耳");
+    expect(map["Ear_02_L"]).toBe("左耳1");
+    expect(map["Ear_03_L"]).toBe("左耳2");
+    expect(map["Chin"]).toBe("顎");
+  });
 });
 
 describe("countBindableBones", () => {
